@@ -1,0 +1,8 @@
+torch>=2.0.0
+torchvision
+torchaudio
+transformers>=4.35.0
+sentence-transformers
+bitsandbytes
+peft
+accelerate
