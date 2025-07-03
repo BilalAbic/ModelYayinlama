@@ -1,13 +1,12 @@
 # CPU-optimized dependencies for FitTürkAI RAG system
-# Core ML libraries - CPU versions
-torch>=2.0.0,<2.3.0  # Stable version for CPU
-transformers>=4.35.0,<4.42.0  # Stable transformers
-sentence-transformers>=2.2.2  # Lightweight embeddings
-accelerate>=0.24.0  # For model loading optimization
+# Core ML libraries - CPU versions with compatible versions
+torch>=2.0.0,<2.2.0  # Stable version for CPU
+transformers>=4.36.0,<4.40.0  # Compatible with PEFT 0.7.x
+sentence-transformers>=2.2.2,<3.0.0  # Lightweight embeddings
+accelerate>=0.24.0,<0.26.0  # For model loading optimization
 
-# Optional for specific cases (comment out if causing issues)
-# bitsandbytes  # Disabled for CPU - causes issues on Windows/CPU
-# peft>=0.6.0  # For LoRA adapters - keep if using fine-tuned models
+# PEFT with compatible version
+peft>=0.7.0,<0.8.0  # For LoRA adapters - compatible with transformers 4.36-4.39
 
 # Text processing
 nltk>=3.8
@@ -22,11 +21,12 @@ scipy>=1.9.0
 PyPDF2>=3.0.0
 pypdf>=3.0.0
 
-# Utilities
+# Essential utilities
 tqdm>=4.64.0
 requests>=2.28.0
 gdown>=4.7.0  # For Google Drive downloads
 
-# Optional: Lightweight alternatives (uncomment if needed)
+# Optional: Additional utilities (uncomment if needed)
 # datasets>=2.14.0  # For dataset handling
 # tokenizers>=0.15.0  # Fast tokenization
+# safetensors>=0.3.0  # For safer model loading
