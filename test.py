@@ -493,11 +493,11 @@ class FitnessRAG:
         print(f"📚 DEBUG: Retrieved context: {context_length} characters")
         logger.info(f"Context retrieval took {retrieval_time:.2f}s.")
 
-        # Build prompt
+        # Build prompt - DialoGPT optimized format
         if context:
-            prompt = f"{system_prompt}\n\n### BAĞLAMSAL BİLGİ KAYNAKLARI\n{context}\n\n### KULLANICI SORUSU\n\"{user_query}\"\n\n### CEVAP"
+            prompt = f"{system_prompt}\n\nKullanıcı bilgileri: {context}\n\nKullanıcı: {user_query}\nFitTürkAI:"
         else:
-            prompt = f"{system_prompt}\n\n### KULLANICI SORUSU\n\"{user_query}\"\n\n### CEVAP"
+            prompt = f"{system_prompt}\n\nKullanıcı: {user_query}\nFitTürkAI:"
 
         # Smart token management - ensure we don't exceed model limits
         max_input_tokens = 700  # Leave room for generation (1024 - 324 = 700)
@@ -514,12 +514,12 @@ class FitnessRAG:
             logger.warning(f"Prompt too long ({prompt_length} tokens), truncating context...")
             
             # Truncate context first, keep system prompt and user query
-            base_prompt = f"{system_prompt}\n\n### KULLANICI SORUSU\n\"{user_query}\"\n\n### CEVAP"
+            base_prompt = f"{system_prompt}\n\nKullanıcı: {user_query}\nFitTürkAI:"
             base_tokens = len(self.tokenizer.encode(base_prompt))
             
             if base_tokens >= max_input_tokens:
                 # Even base prompt is too long, use minimal version
-                minimal_prompt = f"Sen FitTürkAI'sın. Soru: {user_query}\nCevap:"
+                minimal_prompt = f"Sen FitTürkAI'sın.\nKullanıcı: {user_query}\nFitTürkAI:"
                 prompt = minimal_prompt
                 logger.warning("Using minimal prompt due to length constraints")
             else:
@@ -530,7 +530,7 @@ class FitnessRAG:
                     context_words = context.split()
                     while True:
                         test_context = " ".join(context_words)
-                        test_prompt = f"{system_prompt}\n\n### BAĞLAMSAL BİLGİ KAYNAKLARI\n{test_context}\n\n### KULLANICI SORUSU\n\"{user_query}\"\n\n### CEVAP"
+                        test_prompt = f"{system_prompt}\n\nKullanıcı bilgileri: {test_context}\n\nKullanıcı: {user_query}\nFitTürkAI:"
                         if len(self.tokenizer.encode(test_prompt)) <= max_input_tokens:
                             prompt = test_prompt
                             break
@@ -564,7 +564,8 @@ class FitnessRAG:
                     pad_token_id=self.tokenizer.eos_token_id,
                     num_beams=1,  # No beam search for CPU
                     use_cache=True,
-                    early_stopping=True,
+                    repetition_penalty=1.1,  # Prevent repetition
+                    length_penalty=1.0,  # Encourage proper length
                 )
 
             response = self.tokenizer.decode(outputs[0][inputs['input_ids'].shape[1]:], skip_special_tokens=True)
