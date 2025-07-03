@@ -60,7 +60,7 @@ class RAGConfig:
     chunk_overlap_sentences: int = 1  # Less overlap to save memory
     retrieval_k: int = 3  # Fewer documents to process
     retrieval_score_threshold: float = 0.3  # Higher threshold for quality
-    max_context_length: int =820  # Conservative context for CPU (DialoGPT-medium)
+    max_context_length: int = 820  # Conservative context for CPU (DialoGPT-medium)
 
     # Model parameters - CPU optimized
     embedding_model_name: str = "sentence-transformers/all-MiniLM-L6-v2"  # Lightweight
@@ -489,6 +489,8 @@ class FitnessRAG:
         start_time = time.time()
         context = self.retrieve_context(user_query)
         retrieval_time = time.time() - start_time
+        context_length = len(context) if context else 0
+        print(f"📚 DEBUG: Retrieved context: {context_length} characters")
         logger.info(f"Context retrieval took {retrieval_time:.2f}s.")
 
         # Build prompt
@@ -502,11 +504,14 @@ class FitnessRAG:
         
         # Tokenize and check length
         temp_tokens = self.tokenizer.encode(prompt)
-        logger.info(f"Initial prompt length: {len(temp_tokens)} tokens")
+        prompt_length = len(temp_tokens)
+        print(f"🔍 DEBUG: Initial prompt length: {prompt_length} tokens")
+        logger.info(f"Initial prompt length: {prompt_length} tokens")
         
         # If too long, intelligently truncate
-        if len(temp_tokens) > max_input_tokens:
-            logger.warning(f"Prompt too long ({len(temp_tokens)} tokens), truncating context...")
+        if prompt_length > max_input_tokens:
+            print(f"⚠️  DEBUG: Prompt too long ({prompt_length} tokens), truncating context...")
+            logger.warning(f"Prompt too long ({prompt_length} tokens), truncating context...")
             
             # Truncate context first, keep system prompt and user query
             base_prompt = f"{system_prompt}\n\n### KULLANICI SORUSU\n\"{user_query}\"\n\n### CEVAP"
@@ -541,10 +546,12 @@ class FitnessRAG:
         # Final tokenization
         inputs = self.tokenizer(prompt, return_tensors="pt", truncation=True, max_length=max_input_tokens)
         final_length = inputs['input_ids'].shape[1]
+        print(f"✅ DEBUG: Final prompt length: {final_length} tokens (max: {max_input_tokens})")
         logger.info(f"Final prompt length: {final_length} tokens")
         
         inputs = inputs.to(self.model.device)
 
+        print(f"🚀 DEBUG: Starting generation with {final_length} tokens input...")
         try:
             with torch.no_grad():
                 outputs = self.model.generate(
@@ -564,7 +571,9 @@ class FitnessRAG:
             return response.strip()
             
         except Exception as e:
+            print(f"❌ DEBUG: Generation failed: {e}")
             logger.error(f"Generation failed: {e}")
+            print(f"💡 DEBUG: Using intelligent fallback for query: '{user_query}'")
             # Provide intelligent fallback based on query
             if "kilo" in user_query.lower():
                 return "Merhaba! Kilo verme konusunda size yardımcı olmaya hazırım. Dengeli beslenme, düzenli hareket ve yeterli uyku en önemli faktörlerdir. Hangi konuda detaylı bilgi istersiniz?"
