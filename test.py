@@ -59,12 +59,12 @@ class RAGConfig:
     chunk_size: int = 200  # Smaller chunks for CPU processing
     chunk_overlap_sentences: int = 1  # Less overlap to save memory
     retrieval_k: int = 3  # Fewer documents to process
-    retrieval_score_threshold: float = 0.3  # Higher threshold for quality
+    retrieval_score_threshold: float = 0.1  # Lower threshold to get more context
     max_context_length: int = 1200  # More context for DialoGPT-large (2048 tokens)
 
     # Model parameters - CPU optimized
     embedding_model_name: str = "sentence-transformers/all-MiniLM-L6-v2"  # Lightweight
-    generator_model_name: str = "microsoft/DialoGPT-large"  # Larger model for better responses
+    generator_model_name: str = "microsoft/DialoGPT-medium"  # Start with medium, we'll improve Turkish support
     peft_model_path: Optional[str] = None # Path to LoRA adapter
 
 DEFAULT_SYSTEM_PROMPT = """Sen FitTürkAI, empatik ve profesyonel bir sağlık koçusun. Beslenme, egzersiz, uyku ve stres yönetimi konularında rehberlik yaparsın. Sağlık uzmanı değilsin, genel öneriler verirsin. Nazik, motive edici ve destekleyici yaklaşım sergilersin."""
@@ -384,9 +384,9 @@ class FitnessRAG:
             logger.warning(f"Failed to load {self.config.generator_model_name}: {e}")
             logger.info("Falling back to smaller CPU-friendly model...")
             
-            # Try DialoGPT-medium first, then smaller models if that fails
+            # Try Turkish models first, then English models if that fails
             try:
-                fallback_model = "microsoft/DialoGPT-medium"
+                fallback_model = "microsoft/DialoGPT-large"
                 model = AutoModelForCausalLM.from_pretrained(
                     fallback_model,
                     torch_dtype=torch.float32,
@@ -485,14 +485,16 @@ class FitnessRAG:
         print(f"📚 DEBUG: Retrieved context: {context_length} characters")
         logger.info(f"Context retrieval took {retrieval_time:.2f}s.")
 
-        # Build prompt - DialoGPT conversation style
+        # Build prompt - Turkish conversation style
         if context:
-            prompt = f"Sistem: {system_prompt}\n\nBilgiler: {context}\n\nKullanıcı: {user_query}\nAsistan:"
+            prompt = f"<|system|>{system_prompt}\n\n<|context|>{context}\n\n<|user|>{user_query}\n<|assistant|>"
         else:
-            prompt = f"Sistem: {system_prompt}\n\nKullanıcı: {user_query}\nAsistan:"
+            prompt = f"<|system|>{system_prompt}\n\n<|user|>{user_query}\n<|assistant|>"
 
         # Smart token management - ensure we don't exceed model limits
-        if "large" in self.config.generator_model_name:
+        if "8b" in self.config.generator_model_name.lower() or "llama" in self.config.generator_model_name.lower():
+            max_input_tokens = 3000  # Large Turkish models: 4096 - 1096 = 3000
+        elif "large" in self.config.generator_model_name:
             max_input_tokens = 1400  # DialoGPT-large: 2048 - 648 = 1400
         elif "medium" in self.config.generator_model_name:
             max_input_tokens = 700   # DialoGPT-medium: 1024 - 324 = 700  
@@ -511,12 +513,12 @@ class FitnessRAG:
             logger.warning(f"Prompt too long ({prompt_length} tokens), truncating context...")
             
             # Truncate context first, keep system prompt and user query
-            base_prompt = f"Sistem: {system_prompt}\n\nKullanıcı: {user_query}\nAsistan:"
+            base_prompt = f"<|system|>{system_prompt}\n\n<|user|>{user_query}\n<|assistant|>"
             base_tokens = len(self.tokenizer.encode(base_prompt))
             
             if base_tokens >= max_input_tokens:
                 # Even base prompt is too long, use minimal version
-                minimal_prompt = f"Sistem: Sen sağlık koçu FitTürkAI'sın.\nKullanıcı: {user_query}\nAsistan:"
+                minimal_prompt = f"<|user|>{user_query}\n<|assistant|>"
                 prompt = minimal_prompt
                 logger.warning("Using minimal prompt due to length constraints")
             else:
@@ -527,7 +529,7 @@ class FitnessRAG:
                     context_words = context.split()
                     while True:
                         test_context = " ".join(context_words)
-                        test_prompt = f"Sistem: {system_prompt}\n\nBilgiler: {test_context}\n\nKullanıcı: {user_query}\nAsistan:"
+                        test_prompt = f"<|system|>{system_prompt}\n\n<|context|>{test_context}\n\n<|user|>{user_query}\n<|assistant|>"
                         if len(self.tokenizer.encode(test_prompt)) <= max_input_tokens:
                             prompt = test_prompt
                             break
