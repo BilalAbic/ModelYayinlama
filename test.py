@@ -551,11 +551,11 @@ class FitnessRAG:
         with torch.no_grad():
             outputs = self.model.generate(
                 **inputs,
-                max_new_tokens=256,  # Shorter for CPU
+                max_new_tokens=512,  # Shorter for CPU
                 do_sample=True,
                 temperature=0.8,  # Slightly higher for variety
-                top_k=30,  # Reduce for CPU
-                top_p=0.9,  # Reduce for CPU  
+                top_k=50,  # Reduce for CPU
+                top_p=0.95,  # Reduce for CPU  
                 pad_token_id=self.tokenizer.eos_token_id,
                 num_beams=1,  # Disable beam search for CPU
                 use_cache=True,  # Use caching for speed
