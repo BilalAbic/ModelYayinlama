@@ -67,18 +67,7 @@ class RAGConfig:
     generator_model_name: str = "microsoft/DialoGPT-medium"  # CPU-friendly fallback
     peft_model_path: Optional[str] = None # Path to LoRA adapter
 
-DEFAULT_SYSTEM_PROMPT = """Sen "FitTürkAI" adında empatik ve profesyonel bir sağlıklı yaşam koçusun. 
-
-Görevin: Kullanıcılara beslenme, egzersiz, uyku ve stres yönetimi konularında kişiselleştirilmiş rehberlik yapmak.
-
-Kuralların:
-- Sağlık uzmanı değilsin, sadece genel rehberlik yaparsın
-- "Tedavi", "reçete", "garanti" kelimelerini kullanma
-- "Öneri", "rehber", "yaklaşık" kelimelerini kullan
-- Nazik, motive edici ve destekleyici ol
-- Kısa, net ve uygulanabilir öneriler ver
-
-Yaklaşımın: Kullanıcının profilini öğren, basit hedefler belirle, teşvik et."""
+DEFAULT_SYSTEM_PROMPT = """Sen FitTürkAI, empatik ve profesyonel bir sağlık koçusun. Beslenme, egzersiz, uyku ve stres yönetimi konularında rehberlik yaparsın. Sağlık uzmanı değilsin, genel öneriler verirsin. Nazik, motive edici ve destekleyici yaklaşım sergilersin."""
 
 # --- Data Structures ---
 @dataclass
@@ -493,11 +482,11 @@ class FitnessRAG:
         print(f"📚 DEBUG: Retrieved context: {context_length} characters")
         logger.info(f"Context retrieval took {retrieval_time:.2f}s.")
 
-        # Build prompt - DialoGPT optimized format
+        # Build prompt - DialoGPT conversation style
         if context:
-            prompt = f"{system_prompt}\n\nKullanıcı bilgileri: {context}\n\nKullanıcı: {user_query}\nFitTürkAI:"
+            prompt = f"Sistem: {system_prompt}\n\nBilgiler: {context}\n\nKullanıcı: {user_query}\nAsistan:"
         else:
-            prompt = f"{system_prompt}\n\nKullanıcı: {user_query}\nFitTürkAI:"
+            prompt = f"Sistem: {system_prompt}\n\nKullanıcı: {user_query}\nAsistan:"
 
         # Smart token management - ensure we don't exceed model limits
         max_input_tokens = 700  # Leave room for generation (1024 - 324 = 700)
@@ -514,12 +503,12 @@ class FitnessRAG:
             logger.warning(f"Prompt too long ({prompt_length} tokens), truncating context...")
             
             # Truncate context first, keep system prompt and user query
-            base_prompt = f"{system_prompt}\n\nKullanıcı: {user_query}\nFitTürkAI:"
+            base_prompt = f"Sistem: {system_prompt}\n\nKullanıcı: {user_query}\nAsistan:"
             base_tokens = len(self.tokenizer.encode(base_prompt))
             
             if base_tokens >= max_input_tokens:
                 # Even base prompt is too long, use minimal version
-                minimal_prompt = f"Sen FitTürkAI'sın.\nKullanıcı: {user_query}\nFitTürkAI:"
+                minimal_prompt = f"Sistem: Sen sağlık koçu FitTürkAI'sın.\nKullanıcı: {user_query}\nAsistan:"
                 prompt = minimal_prompt
                 logger.warning("Using minimal prompt due to length constraints")
             else:
@@ -530,7 +519,7 @@ class FitnessRAG:
                     context_words = context.split()
                     while True:
                         test_context = " ".join(context_words)
-                        test_prompt = f"{system_prompt}\n\nKullanıcı bilgileri: {test_context}\n\nKullanıcı: {user_query}\nFitTürkAI:"
+                        test_prompt = f"Sistem: {system_prompt}\n\nBilgiler: {test_context}\n\nKullanıcı: {user_query}\nAsistan:"
                         if len(self.tokenizer.encode(test_prompt)) <= max_input_tokens:
                             prompt = test_prompt
                             break
@@ -556,20 +545,31 @@ class FitnessRAG:
             with torch.no_grad():
                 outputs = self.model.generate(
                     **inputs,
-                    max_new_tokens=256,  # Conservative for CPU
+                    max_new_tokens=200,  # Conservative for CPU
+                    min_new_tokens=10,   # Ensure some output
                     do_sample=True,
-                    temperature=0.8,
-                    top_k=30,  # Reduced for CPU
-                    top_p=0.9,  # Reduced for CPU  
+                    temperature=0.7,     # Lower for more focused responses
+                    top_k=40,            # Slightly higher for diversity
+                    top_p=0.85,          # Reduced for CPU  
                     pad_token_id=self.tokenizer.eos_token_id,
-                    num_beams=1,  # No beam search for CPU
+                    eos_token_id=self.tokenizer.eos_token_id,
+                    num_beams=1,         # No beam search for CPU
                     use_cache=True,
-                    repetition_penalty=1.1,  # Prevent repetition
-                    length_penalty=1.0,  # Encourage proper length
+                    repetition_penalty=1.15,  # Stronger prevention of repetition
+                    length_penalty=1.1,       # Encourage longer responses
+                    no_repeat_ngram_size=3,   # Prevent 3-gram repetition
                 )
 
             response = self.tokenizer.decode(outputs[0][inputs['input_ids'].shape[1]:], skip_special_tokens=True)
-            return response.strip()
+            response = response.strip()
+            
+            # Debug: Check if response is meaningful
+            if len(response) < 10:
+                print(f"⚠️  DEBUG: Short response ({len(response)} chars): '{response}'")
+                logger.warning(f"Generated response is very short: '{response}'")
+            
+            print(f"✅ DEBUG: Generated response: {len(response)} characters")
+            return response
             
         except Exception as e:
             print(f"❌ DEBUG: Generation failed: {e}")
