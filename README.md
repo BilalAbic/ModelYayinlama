@@ -1,158 +1,243 @@
-# FitTürkAI RAG Sistemi
+# FitTürkAI RAG Sistemi - CPU Optimize Linux Versiyonu
 
-Türkçe fitness ve beslenme konularında özelleştirilmiş Retrieval-Augmented Generation (RAG) sistemi.
+🏋️ **FitTürkAI**, Türkçe fitness ve sağlık danışmanlığı için geliştirilmiş Retrieval-Augmented Generation (RAG) sistemidir. Bu versiyon **CPU kullanımı için optimize edilmiştir** ve **Google Colab** gibi Linux ortamlarında sorunsuz çalışır.
 
 ## 🚀 Özellikler
 
-- **Fine-tuned Turkish LLM**: Fitness ve beslenme alanında özelleştirilmiş model
-- **RAG Sistemi**: PDF ve JSON belgelerinden bilgi çekme
-- **İnteraktif Chat**: Terminal üzerinden sohbet arayüzü
-- **CUDA Desteği**: GPU varsa otomatik hızlandırma
+- **CPU Optimize Edilmiş**: GPU gerektirmez, CPU'da verimli çalışır
+- **Türkçe Dil Desteği**: Türkçe dokümanları işler ve yanıtlar
+- **RAG Sistemi**: PDF ve JSON belgelerinden bilgi çıkarır ve kullanır
+- **Interactive Chat**: Gerçek zamanlı soru-cevap sistemi
+- **LoRA Adapter Desteği**: Fine-tune edilmiş modelleri destekler
+- **Linux Uyumlu**: Google Colab, Ubuntu, ve diğer Linux dağıtımlarında çalışır
 
-## 📋 Gereksinimler
+## 📋 Sistem Gereksinimleri
 
-- Python 3.8+
-- 8GB+ RAM (CPU için)
-- İsteğe bağlı: NVIDIA GPU (hızlandırma için)
+### Minimum Gereksinimler
+- **RAM**: En az 4 GB (8 GB önerilir)
+- **Disk**: 5 GB boş alan
+- **İşletim Sistemi**: Linux (Ubuntu, Google Colab vb.)
+- **Python**: 3.8 veya üzeri
+
+### Google Colab İçin
+- Ücretsiz Google Colab hesabı yeterlidir
+- GPU gerekmez (CPU modunda çalışır)
 
 ## 🛠️ Kurulum
 
-### 1. Repository'yi Klonlayın
-```bash
-git clone https://github.com/KULLANICI_ADINIZ/REPO_ADI.git
-cd REPO_ADI
+### 1. Google Colab'da Hızlı Kurulum
+
+```python
+# Google Colab'da yeni bir notebook oluşturun ve şunu çalıştırın:
+
+# 1. Repository'yi klonlayın
+!git clone https://github.com/YOUR_USERNAME/FitTurkAI-RAG.git
+%cd FitTurkAI-RAG
+
+# 2. Otomatik kurulum scriptini çalıştırın
+!python colab_setup_and_run.py
 ```
 
-### 2. Python Environment Oluşturun
-```bash
-python3 -m venv fitturkrai_env
-source fitturkrai_env/bin/activate  # Linux/Mac
-# veya
-fitturkrai_env\Scripts\activate     # Windows
-```
+### 2. Manuel Kurulum
 
-### 3. Dependencies Kurun
 ```bash
+# 1. Repository'yi klonlayın
+git clone https://github.com/YOUR_USERNAME/FitTurkAI-RAG.git
+cd FitTurkAI-RAG
+
+# 2. Python sanal ortamı oluşturun (opsiyonel)
+python -m venv venv
+source venv/bin/activate  # Linux/Mac
+
+# 3. Gerekli paketleri yükleyin
 pip install -r requirements.txt
+
+# 4. NLTK verilerini indirin
+python -c "import nltk; nltk.download('punkt'); nltk.download('stopwords')"
 ```
 
-### 4. Büyük Model Dosyalarını İndirin
+## 📁 Klasör Yapısı
 
-**Önemli**: Fine-tuned model ve vector store büyük olduğu için GitHub'a yüklenmemiştir.
-
-#### Seçenek A: Google Drive'dan İndirme (Önerilen)
-1. Model dosyalarını Google Drive'a yükledikten sonra
-2. `download_models.py` dosyasındaki file ID'leri güncelleyin
-3. İndirme scriptini çalıştırın:
-```bash
-python download_models.py
+```
+FitTurkAI-RAG/
+├── test.py                    # Ana RAG sistemi (CPU optimize)
+├── colab_setup_and_run.py     # Google Colab kurulum scripti
+├── requirements.txt           # CPU için paket listesi
+├── README.md                  # Bu dosya
+├── indirilen_pdfler/          # PDF dosyalarınız (oluşturulacak)
+├── DATA/                      # JSON veri dosyalarınız (oluşturulacak)
+├── fitness_rag_store_merged/  # Vector store (oluşturulacak)
+└── fine_tuned_FitTurkAI_QLoRA/ # LoRA adapter (opsiyonel)
 ```
 
-#### Seçenek B: Manuel İndirme
-1. [Google Drive Link 1](https://drive.google.com/your-fine-tuned-model-link) - Fine-tuned Model
-2. [Google Drive Link 2](https://drive.google.com/your-vector-store-link) - Vector Store
-3. Zip dosyalarını proje klasörüne çıkarın
+## 🚴‍♀️ Kullanım
 
-## 🎯 Kullanım
+### 1. Temel Kullanım
 
-### Sistemi Başlatın
-```bash
+```python
+# Ana scripti çalıştırın
 python test.py
 ```
 
-### İlk Çalıştırma
-1. Sistem otomatik olarak gerekli NLTK verilerini indirecek
-2. Model dosyaları kontrol edilecek
-3. Vector store yüklenecek veya oluşturulacak
-4. İnteraktif chat başlayacak
+### 2. Google Colab'da Programmatik Kullanım
 
-### Örnek Sorgular
+```python
+from test import FitnessRAG, RAGConfig
+
+# Konfigürasyon oluşturun
+config = RAGConfig(
+    peft_model_path=None  # Base model kullanmak için None yapın
+)
+
+# RAG sistemini başlatın
+rag_system = FitnessRAG(config)
+
+# Bilgi tabanını oluşturun (ilk çalıştırmada)
+rag_system.build_knowledge_base(
+    pdf_dir="./indirilen_pdfler",
+    json_dir="./DATA"
+)
+
+# Soru sorun
+answer = rag_system.ask("Sağlıklı kahvaltı için ne önerirsiniz?")
+print(answer)
+
+# Interactive mode başlatın
+rag_system.interactive_chat()
 ```
-🤔 Sorunuz: Protein ihtiyacımı nasıl hesaplayabilirim?
-🤔 Sorunuz: Kilo vermek için hangi egzersizleri yapmalıyım?
-🤔 Sorunuz: Günlük kalori ihtiyacım nedir?
+
+### 3. Veri Ekleme
+
+#### PDF Dosyaları
+```bash
+# PDF'lerinizi bu klasöre koyun
+cp your_fitness_pdfs/*.pdf ./indirilen_pdfler/
 ```
 
-## 🔧 Konfigürasyon
+#### JSON Verileri
+```python
+# Örnek JSON formatı
+{
+  "soru": "Egzersiz öncesi ne yemeli?",
+  "cevap": "Egzersiz öncesi hafif, karbonhidrat ağırlıklı besinler tercih edin..."
+}
+```
 
-`test.py` dosyasındaki `RAGConfig` sınıfından ayarları değiştirebilirsiniz:
+## ⚙️ Konfigürasyon
+
+`RAGConfig` sınıfında özelleştirilebilir parametreler:
 
 ```python
 config = RAGConfig(
-    chunk_size=300,           # Metin chunk boyutu
-    retrieval_k=5,           # Kaç belge getirilecek
-    max_context_length=3000, # Maksimum context uzunluğu
-    generator_model_name="ytu-ce-cosmos/Turkish-Llama-8b-v0.1"
+    # Veri parametreleri
+    chunk_size=300,                    # Kelime başına chunk boyutu
+    chunk_overlap_sentences=2,         # Overlap cümle sayısı
+    retrieval_k=5,                     # Kaç belge getirilecek
+    
+    # Model parametreleri
+    generator_model_name="ytu-ce-cosmos/Turkish-Llama-8b-v0.1",
+    peft_model_path=None,              # LoRA adapter yolu
+    
+    # Performans parametreleri
+    max_context_length=3000            # Maksimum context uzunluğu
 )
 ```
 
-## 📁 Proje Yapısı
+## 🔧 Sorun Giderme
 
-```
-├── test.py                          # Ana uygulama
-├── download_models.py               # Model indirme scripti
-├── requirements.txt                 # Python bağımlılıkları
-├── README.md                       # Bu dosya
-├── .gitignore                      # Git ignore kuralları
-├── fine_tuned_FitTurkAI_QLoRA/    # Fine-tuned model (indirilecek)
-└── fitness_rag_store_merged/       # Vector store (indirilecek)
-```
+### Yaygın Sorunlar
 
-## 🚀 Google Cloud VM'de Çalıştırma
-
-### VM Oluşturma
-```bash
-gcloud compute instances create fitturkrai-vm \
-    --zone=us-central1-a \
-    --machine-type=n1-standard-4 \
-    --image-family=ubuntu-2204-lts \
-    --image-project=ubuntu-os-cloud
-```
-
-### VM'ye Bağlanma
-```bash
-gcloud compute ssh fitturkrai-vm --zone=us-central1-a
-```
-
-### Kurulum
-```bash
-sudo apt update && sudo apt upgrade -y
-sudo apt install -y python3 python3-pip python3-venv git
-git clone https://github.com/KULLANICI_ADINIZ/REPO_ADI.git
-cd REPO_ADI
-python3 -m venv fitturkrai_env
-source fitturkrai_env/bin/activate
-pip install -r requirements.txt
-python download_models.py
-python test.py
-```
-
-## 🛟 Sorun Giderme
-
-### CUDA Hatası
+#### 1. Bellek Hatası (OOM)
 ```python
-# Model CPU'da çalışırsa:
-RuntimeError: CUDA not available
+# Chunk boyutunu küçültün
+config = RAGConfig(chunk_size=200, max_context_length=2000)
 ```
-**Çözüm**: Sistem otomatik olarak CPU moduna geçecektir.
 
-### Memory Hatası
+#### 2. Model Yükleme Hatası
 ```python
-# Yetersiz RAM
-RuntimeError: out of memory
+# Base model kullanın (LoRA olmadan)
+config = RAGConfig(peft_model_path=None)
 ```
-**Çözüm**: Daha küçük model kullanın veya chunk_size'ı azaltın.
 
-### Model Bulunamıyor
+#### 3. NLTK Veri Hatası
+```python
+import nltk
+nltk.download('punkt_tab')  # Yeni NLTK sürümü için
+nltk.download('punkt')      # Eski NLTK sürümü için
+nltk.download('stopwords')
 ```
-⚠️ Fine-tuned model not found
+
+### Google Colab Özel Çözümler
+
+#### GPU'yu Kapatın
+```python
+import os
+os.environ['CUDA_VISIBLE_DEVICES'] = ''  # GPU'yu devre dışı bırak
 ```
-**Çözüm**: `python download_models.py` çalıştırın.
+
+#### Bellek Optimizasyonu
+```python
+# Büyük modeller için
+import torch
+torch.set_num_threads(2)  # CPU thread sayısını sınırla
+```
+
+## 📊 Performans Optimizasyonları
+
+### CPU İçin İpuçları
+
+1. **Model Boyutu**: Daha küçük embedding modelleri kullanın
+2. **Chunk Size**: Daha küçük chunk'lar daha hızlıdır
+3. **Thread Sayısı**: CPU çekirdek sayınıza göre ayarlayın
+4. **Batch Size**: Tek seferde işlenecek belge sayısını sınırlayın
+
+```python
+# Hızlı konfigürasyon
+fast_config = RAGConfig(
+    embedding_model_name="paraphrase-multilingual-MiniLM-L6-v2",  # Daha küçük
+    chunk_size=200,
+    retrieval_k=3,
+    max_context_length=2000
+)
+```
+
+## 🤝 Katkıda Bulunma
+
+1. Fork edin
+2. Feature branch oluşturun (`git checkout -b feature/AmazingFeature`)
+3. Commit yapın (`git commit -m 'Add some AmazingFeature'`)
+4. Push edin (`git push origin feature/AmazingFeature`)
+5. Pull Request açın
+
+## 📝 Değişiklik Notları
+
+### v2.0 - CPU Optimized
+- ✅ GPU bağımlılığı kaldırıldı
+- ✅ CPU için optimize edildi
+- ✅ Google Colab desteği eklendi
+- ✅ Otomatik kurulum scripti eklendi
+- ✅ Bellek optimizasyonları
+
+### v1.0 - GPU Version
+- ⚠️ Bu versiyon GPU gerektiriyordu (deprecated)
 
 ## 📞 Destek
 
-Sorularınız için issue açabilirsiniz.
+- **Issues**: GitHub Issues bölümünü kullanın
+- **Discussions**: Genel sorular için GitHub Discussions
+- **Email**: [your-email@domain.com]
 
 ## 📄 Lisans
 
-MIT License 
+Bu proje MIT lisansı altında lisanslanmıştır - detaylar için [LICENSE](LICENSE) dosyasına bakın.
+
+## 🙏 Teşekkürler
+
+- Hugging Face Transformers ekibine
+- Turkish LLaMA projesine
+- Sentence Transformers ekibine
+- FAISS ekibine
+
+---
+
+⭐ **Bu projeyi beğendiyseniz, lütfen yıldızlamayı unutmayın!** 
