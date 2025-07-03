@@ -1,4 +1,4 @@
-# --- MERGED RAG & INTERACTION MODULE (CORRECTED) ---
+# --- MERGED RAG & INTERACTION MODULE (CPU OPTIMIZED) ---
 
 import os
 import json
@@ -11,9 +11,21 @@ from typing import List, Dict, Optional, Tuple
 from pathlib import Path
 from dataclasses import dataclass, field
 
-from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
-from peft import PeftModel
-import torch
+# Core transformers (always needed)
+from transformers import AutoTokenizer, AutoModelForCausalLM
+
+# Optional imports for GPU features (with fallbacks)
+try:
+    from transformers import BitsAndBytesConfig
+    BITSANDBYTES_AVAILABLE = True
+except ImportError:
+    BITSANDBYTES_AVAILABLE = False
+
+try:
+    from peft import PeftModel
+    PEFT_AVAILABLE = True
+except ImportError:
+    PEFT_AVAILABLE = False
 
 # PDF Processing
 import PyPDF2
@@ -28,30 +40,32 @@ import nltk
 from nltk.corpus import stopwords
 from nltk.tokenize import sent_tokenize
 
-# Transformers for Language Model Interaction
-from transformers import AutoTokenizer, AutoModelForCausalLM
-from peft import PeftModel
-
 # --- Setup Logging ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+# Log availability of optional features
+if not BITSANDBYTES_AVAILABLE:
+    logger.warning("BitsAndBytesConfig not available - GPU quantization disabled")
+if not PEFT_AVAILABLE:
+    logger.warning("PEFT not available - LoRA adapters disabled")
+
 # --- Configuration ---
 @dataclass
 class RAGConfig:
-    """Central configuration for the RAG system."""
-    # RAG parameters
+    """Central configuration for the RAG system - CPU optimized."""
+    # RAG parameters - CPU optimized for low memory
     vector_store_path: str = "./fitness_rag_store_merged"
-    chunk_size: int = 300  # Words per chunk
-    chunk_overlap_sentences: int = 2  # Number of sentences to overlap
-    retrieval_k: int = 5
-    retrieval_score_threshold: float = 0.2
-    max_context_length: int = 3000
+    chunk_size: int = 200  # Smaller chunks for CPU processing
+    chunk_overlap_sentences: int = 1  # Less overlap to save memory
+    retrieval_k: int = 3  # Fewer documents to process
+    retrieval_score_threshold: float = 0.3  # Higher threshold for quality
+    max_context_length: int = 1500  # Shorter context for CPU
 
-    # Model parameters
-    embedding_model_name: str = "paraphrase-multilingual-MiniLM-L12-v2"
-    generator_model_name: str = "ytu-ce-cosmos/Turkish-Llama-8b-v0.1"
-    peft_model_path: Optional[str] = None # Path to LoRA adapter, e.g., "./fine_tuned_FitTurkAI_LoRA"
+    # Model parameters - CPU optimized
+    embedding_model_name: str = "sentence-transformers/all-MiniLM-L6-v2"  # Lightweight
+    generator_model_name: str = "microsoft/DialoGPT-medium"  # CPU-friendly fallback
+    peft_model_path: Optional[str] = None # Path to LoRA adapter
 
 DEFAULT_SYSTEM_PROMPT = SISTEM_TALIMATI = """
 [ROL]
@@ -306,7 +320,29 @@ class VectorStore:
     def __init__(self, config: RAGConfig, text_processor: TurkishTextProcessor):
         self.config = config
         self.text_processor = text_processor
-        self.model = SentenceTransformer(config.embedding_model_name)
+        self.model = None
+        
+        # Try loading embedding model with fallbacks
+        models_to_try = [
+            config.embedding_model_name,
+            "all-MiniLM-L6-v2",  # Even smaller fallback
+            "paraphrase-multilingual-MiniLM-L12-v2"  # Last resort
+        ]
+        
+        for model_name in models_to_try:
+            try:
+                self.model = SentenceTransformer(model_name)
+                logger.info(f"Loaded embedding model: {model_name}")
+                if model_name != config.embedding_model_name:
+                    logger.info(f"Using fallback model: {model_name}")
+                break
+            except Exception as e:
+                logger.warning(f"Failed to load embedding model {model_name}: {e}")
+                continue
+        
+        if not self.model:
+            logger.error("Failed to load any embedding model! Vector store will be disabled.")
+            
         self.documents: List[Document] = []
         self.index: Optional[faiss.Index] = None
 
@@ -314,6 +350,9 @@ class VectorStore:
         """Build the vector store from documents."""
         if not documents:
             logger.warning("No documents provided to build vector store.")
+            return
+        if not self.model:
+            logger.warning("No embedding model available, cannot build vector store.")
             return
         self.documents = documents
         logger.info(f"Encoding {len(self.documents)} documents...")
@@ -325,7 +364,8 @@ class VectorStore:
 
     def search(self, query: str) -> List[Tuple[Document, float]]:
         """Search for similar documents."""
-        if not self.index or not self.documents: return []
+        if not self.index or not self.documents or not self.model: 
+            return []
         processed_query = self.text_processor.preprocess_for_embedding(query)
         query_embedding = self.model.encode([processed_query], normalize_embeddings=True)
         scores, indices = self.index.search(query_embedding.astype('float32'), self.config.retrieval_k)
@@ -374,7 +414,7 @@ class FitnessRAG:
         device_available = torch.cuda.is_available()
         
         try:
-            if device_available:
+            if device_available and BITSANDBYTES_AVAILABLE:
                 logger.info("CUDA detected - attempting 4-bit quantization for GPU inference")
                 # Define quantization config for GPU
                 bnb_config = BitsAndBytesConfig(
@@ -399,20 +439,33 @@ class FitnessRAG:
                     torch_dtype=torch.float32,  # Use float32 for CPU
                     device_map="cpu",
                     trust_remote_code=True,
+                    low_cpu_mem_usage=True,  # Optimize CPU memory usage
                 )
         except Exception as e:
             logger.warning(f"Failed to load {self.config.generator_model_name}: {e}")
-            logger.info("Falling back to DistilGPT-2 for limited resources...")
+            logger.info("Falling back to smaller CPU-friendly model...")
             
-            # Fallback to much smaller model
-            fallback_model = "distilgpt2"
-            model = AutoModelForCausalLM.from_pretrained(
-                fallback_model,
-                torch_dtype=torch.float32,
-                device_map="cpu",
-            )
-            # Update config to reflect the actual model being used
-            self.config.generator_model_name = fallback_model
+            # Try DialoGPT-medium first, then DistilGPT-2 if that fails
+            try:
+                fallback_model = "microsoft/DialoGPT-medium"
+                model = AutoModelForCausalLM.from_pretrained(
+                    fallback_model,
+                    torch_dtype=torch.float32,
+                    device_map="cpu",
+                    low_cpu_mem_usage=True,
+                )
+                self.config.generator_model_name = fallback_model
+            except Exception as e2:
+                logger.warning(f"DialoGPT-medium also failed: {e2}")
+                logger.info("Final fallback to DistilGPT-2...")
+                fallback_model = "distilgpt2"
+                model = AutoModelForCausalLM.from_pretrained(
+                    fallback_model,
+                    torch_dtype=torch.float32,
+                    device_map="cpu",
+                    low_cpu_mem_usage=True,
+                )
+                self.config.generator_model_name = fallback_model
 
         # Load tokenizer
         tokenizer = AutoTokenizer.from_pretrained(self.config.generator_model_name)
@@ -423,7 +476,7 @@ class FitnessRAG:
             logger.info("Set pad_token to eos_token")
 
         # Load PEFT adapter if available
-        if self.config.peft_model_path and Path(self.config.peft_model_path).exists():
+        if PEFT_AVAILABLE and self.config.peft_model_path and Path(self.config.peft_model_path).exists():
             logger.info(f"Loading PEFT adapter from: {self.config.peft_model_path}")
             
             try:
@@ -443,6 +496,8 @@ class FitnessRAG:
             except Exception as e:
                 logger.error(f"Failed to load PEFT adapter: {e}")
                 logger.warning("Continuing with base model only")
+        elif not PEFT_AVAILABLE:
+            logger.warning("PEFT library not available. Using base model only.")
         else:
             logger.warning("PEFT adapter path not found or doesn't exist. Using base model only.")
 
@@ -496,12 +551,14 @@ class FitnessRAG:
         with torch.no_grad():
             outputs = self.model.generate(
                 **inputs,
-                max_new_tokens=512,
+                max_new_tokens=256,  # Shorter for CPU
                 do_sample=True,
-                temperature=0.7,
-                top_k=50,
-                top_p=0.95,
+                temperature=0.8,  # Slightly higher for variety
+                top_k=30,  # Reduce for CPU
+                top_p=0.9,  # Reduce for CPU  
                 pad_token_id=self.tokenizer.eos_token_id,
+                num_beams=1,  # Disable beam search for CPU
+                use_cache=True,  # Use caching for speed
             )
 
         response = self.tokenizer.decode(outputs[0][inputs['input_ids'].shape[1]:], skip_special_tokens=True)
@@ -569,11 +626,12 @@ def main():
         print("🔄 Attempting to download model files...")
         
         try:
-            download_script = os.path.join(current_dir, "download_models.py")
+            download_script = os.path.join(current_dir, "download_models_gdown.py")
             if os.path.exists(download_script):
                 subprocess.run([sys.executable, download_script], check=True)
             else:
-                print("❌ download_models.py not found. Please download model files manually.")
+                print("❌ Download script not found. Please download model files manually.")
+                print("💡 You can run: python download_models_gdown.py")
         except subprocess.CalledProcessError:
             print("❌ Download failed. Using base model without fine-tuning.")
             PEFT_ADAPTER_PATH = None
@@ -603,6 +661,12 @@ def main():
 
     # Initialize the entire system (including loading the LLM)
     print("🚀 FitTürkAI RAG Sistemi Başlatılıyor...")
+    print("💻 CPU modunda çalışıyor - GPU optimizasyonları devre dışı")
+    
+    # Memory usage tip for CPU
+    if not torch.cuda.is_available():
+        print("💡 CPU için optimize edildi: daha küçük modeller ve parametreler kullanılıyor")
+    
     rag_system = FitnessRAG(config)
 
     # Check if the knowledge base needs to be built
