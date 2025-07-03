@@ -1,4 +1,4 @@
-# --- MERGED RAG & INTERACTION MODULE (CPU OPTIMIZED) ---
+# --- MERGED RAG & INTERACTION MODULE (CPU OPTIMIZED FOR LINUX) ---
 
 import os
 import json
@@ -11,21 +11,9 @@ from typing import List, Dict, Optional, Tuple
 from pathlib import Path
 from dataclasses import dataclass, field
 
-# Core transformers (always needed)
 from transformers import AutoTokenizer, AutoModelForCausalLM
-
-# Optional imports for GPU features (with fallbacks)
-try:
-    from transformers import BitsAndBytesConfig
-    BITSANDBYTES_AVAILABLE = True
-except ImportError:
-    BITSANDBYTES_AVAILABLE = False
-
-try:
-    from peft import PeftModel
-    PEFT_AVAILABLE = True
-except ImportError:
-    PEFT_AVAILABLE = False
+from peft import PeftModel
+import torch
 
 # PDF Processing
 import PyPDF2
@@ -40,34 +28,93 @@ import nltk
 from nltk.corpus import stopwords
 from nltk.tokenize import sent_tokenize
 
+# Transformers for Language Model Interaction
+from transformers import AutoTokenizer, AutoModelForCausalLM
+from peft import PeftModel
+
 # --- Setup Logging ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-# Log availability of optional features
-if not BITSANDBYTES_AVAILABLE:
-    logger.warning("BitsAndBytesConfig not available - GPU quantization disabled")
-if not PEFT_AVAILABLE:
-    logger.warning("PEFT not available - LoRA adapters disabled")
-
 # --- Configuration ---
 @dataclass
 class RAGConfig:
-    """Central configuration for the RAG system - CPU optimized."""
-    # RAG parameters - CPU optimized for low memory
+    """Central configuration for the RAG system."""
+    # RAG parameters
     vector_store_path: str = "./fitness_rag_store_merged"
-    chunk_size: int = 200  # Smaller chunks for CPU processing
-    chunk_overlap_sentences: int = 1  # Less overlap to save memory
-    retrieval_k: int = 3  # Fewer documents to process
-    retrieval_score_threshold: float = 0.1  # Lower threshold to get more context
-    max_context_length: int = 1200  # More context for DialoGPT-large (2048 tokens)
+    chunk_size: int = 300  # Words per chunk
+    chunk_overlap_sentences: int = 2  # Number of sentences to overlap
+    retrieval_k: int = 5
+    retrieval_score_threshold: float = 0.2
+    max_context_length: int = 3000
 
-    # Model parameters - CPU optimized
-    embedding_model_name: str = "sentence-transformers/all-MiniLM-L6-v2"  # Lightweight
-    generator_model_name: str = "microsoft/DialoGPT-medium"  # Start with medium, we'll improve Turkish support
-    peft_model_path: Optional[str] = None # Path to LoRA adapter
+    # Model parameters
+    embedding_model_name: str = "paraphrase-multilingual-MiniLM-L12-v2"
+    generator_model_name: str = "ytu-ce-cosmos/Turkish-Llama-8b-v0.1"
+    peft_model_path: Optional[str] = None # Path to LoRA adapter, e.g., "./fine_tuned_FitTurkAI_LoRA"
 
-DEFAULT_SYSTEM_PROMPT = """Sen FitTürkAI, empatik ve profesyonel bir sağlık koçusun. Beslenme, egzersiz, uyku ve stres yönetimi konularında rehberlik yaparsın. Sağlık uzmanı değilsin, genel öneriler verirsin. Nazik, motive edici ve destekleyici yaklaşım sergilersin."""
+DEFAULT_SYSTEM_PROMPT = SISTEM_TALIMATI = """
+[ROL]
+Sen "FitTürkAI" adında, bütünsel yaklaşıma sahip, empatik ve proaktif bir kişisel sağlıklı yaşam koçusun. Görevin yalnızca beslenme önerileri vermek değil, aynı zamanda kullanıcının fiziksel, zihinsel ve yaşam tarzına dair tüm faktörleri dikkate alarak uyarlanabilir rehberler sunmaktır. Sağlık profesyoneli değilsin, tıbbi teşhis veya tedavi öneremezsin. Amacın kullanıcıya yol arkadaşlığı yapmak, rehberlik sağlamak ve davranış değişikliğini sürdürülebilir kılmaktır.
+
+[GÖREV TANIMI]
+Kullanıcının profil verilerini analiz ederek ona özel, bütünsel ve sürdürülebilir bir "Sağlıklı Yaşam Rehberi" oluştur. Bu rehber:
+- Beslenme planı
+- Egzersiz planı
+- Uyku düzeni
+- Stres yönetimi stratejileri
+- Su tüketim hedefleri
+bileşenlerini içermelidir. Rehberin sonunda kullanıcıyı küçük bir mikro hedef belirlemeye teşvik et.
+
+[İLETİŞİM ADIMLARI – ZORUNLU AKIŞ]
+1. *Tanıtım ve Uyarı:* Kendini "FitTürkAI" olarak tanıt, sağlık uzmanı olmadığını ve verdiğin bilgilerin sadece rehberlik amacı taşıdığını vurgula. Devam izni al.
+2. *Profil Toplama:* Kullanıcıdan şu verileri iste:
+   - Yaş, Cinsiyet, Kilo, Boy
+   - Sağlık durumu (diyabet, obezite, hipertansiyon, vb.)
+   - Beslenme tercihi/alerji (vejetaryen, glutensiz, vb.)
+   - Hedef (kilo vermek, enerji kazanmak, vb.)
+   - Fiziksel aktivite düzeyi
+   - Uyku süresi, stres düzeyi
+3. *Prensip Tanıtımı:* Kullanıcının durumuna özel 3–4 temel prensibi (örneğin: dengeli tabak, kan şekeri dengesi, stres ve uykunun etkisi) açıklayarak rehbere zemin hazırla.
+4. *Kişiselleştirilmiş Sağlıklı Yaşam Rehberi Sun:*
+   - *Beslenme*: Haftalık tablo veya örnek öğünler (tahmini kalori ve porsiyon bilgisiyle)
+   - *Egzersiz*: Haftalık FITT prensibine dayalı plan
+   - *Uyku & Stres*: Pratik iyileştirme önerileri
+   - *Su*: Hedef ve içme taktikleri
+5. *Mikro Hedef Belirleme:* Kullanıcıya küçük, uygulanabilir bir hedef seçtir ("Bu hafta neye odaklanalım?").
+6. *Kapanış:* Rehberin sonunda doktor desteğinin önemini tekrar vurgula. Net ve cesaret verici bir mesajla bitir.
+
+[KURALLAR VE KISITLAR]
+- ❌ *Yasaklı Terimler:* "Tedavi", "reçete", "kesin sonuç", "garanti", "zayıflama diyeti"
+- ✅ *İzinli Terimler:* "Öneri", "yaklaşık plan", "rehber", "eğitim amaçlı"
+- 🔎 *Kalori ve Porsiyonlar:* Daima "tahmini" ya da "yaklaşık" gibi ifadelerle sun. Öğünler sade, dengeli ve kültürel olarak uygun olmalı.
+- 🚫 *Teşhis/Tedavi:* Teşhis koyamazsın, ilaç öneremezsin.
+- ✅ *Üslup:* Nazik, empatik, motive edici. Net ve profesyonel. Markdown ile netlik sağla (*kalın, *italik, tablolar).
+
+[DİNAMİK ADAPTASYON VE PROAKTİFLİK]
+- Alerji/tercih bildirildiğinde otomatik alternatif öner.
+- Plandan sapıldığında kullanıcıyı motive et, çözüme odaklan, ardından planı revize et (örneğin: "gofret yedim" diyorsa → daha hafif akşam öner).
+- Her zaman kriz anlarını büyütmeden yönet.
+
+[EGZERSİZ PLANI – KURALLAR]
+1. *Uyarı:* Egzersiz önerilerinin öncesinde doktor onayı gerektiğini açıkla.
+2. *FITT Analizi:* Egzersizleri profile göre planla (Sıklık, Yoğunluk, Süre, Tür).
+3. *Plan Formatı:* Haftalık tablo, güvenli hareketler, tekrar sayısı (örneğin: "formun bozulana kadar", ağırlıksız öneri).
+4. *Gelişim Prensibi:* Kolaylaştıkça artırılabilecek yollar sun.
+
+[EK YETENEKLER]
+- Haftalık değerlendirme ("Geçen hafta nasıldı?")
+- Tarif oluşturma
+- Alışveriş listesi çıkarma
+- "Neden bu yemek?" sorularını bilimsel ama sade cevaplama
+
+[FEW-SHOT PROMPT – ÖRNEK]
+*Kullanıcı:* Merhaba, kilo vermek istiyorum.
+*FitTürkAI:* Merhaba! Ben FitTürkAI, yol arkadaşınız... [güvenlik uyarısı + devam onayı]
+*Kullanıcı:* 35 yaş, erkek, obezite + hipertansiyon, memur, stresli, 5 saat uyuyor.
+*FitTürkAI:* (Teşekkür + prensipler + beslenme tablosu + egzersiz planı + su + uyku + stres + mikro hedef + kapanış)
+
+"""
 
 # --- Data Structures ---
 @dataclass
@@ -259,29 +306,7 @@ class VectorStore:
     def __init__(self, config: RAGConfig, text_processor: TurkishTextProcessor):
         self.config = config
         self.text_processor = text_processor
-        self.model = None
-        
-        # Try loading embedding model with fallbacks
-        models_to_try = [
-            config.embedding_model_name,
-            "all-MiniLM-L6-v2",  # Even smaller fallback
-            "paraphrase-multilingual-MiniLM-L12-v2"  # Last resort
-        ]
-        
-        for model_name in models_to_try:
-            try:
-                self.model = SentenceTransformer(model_name)
-                logger.info(f"Loaded embedding model: {model_name}")
-                if model_name != config.embedding_model_name:
-                    logger.info(f"Using fallback model: {model_name}")
-                break
-            except Exception as e:
-                logger.warning(f"Failed to load embedding model {model_name}: {e}")
-                continue
-        
-        if not self.model:
-            logger.error("Failed to load any embedding model! Vector store will be disabled.")
-            
+        self.model = SentenceTransformer(config.embedding_model_name)
         self.documents: List[Document] = []
         self.index: Optional[faiss.Index] = None
 
@@ -289,9 +314,6 @@ class VectorStore:
         """Build the vector store from documents."""
         if not documents:
             logger.warning("No documents provided to build vector store.")
-            return
-        if not self.model:
-            logger.warning("No embedding model available, cannot build vector store.")
             return
         self.documents = documents
         logger.info(f"Encoding {len(self.documents)} documents...")
@@ -303,8 +325,7 @@ class VectorStore:
 
     def search(self, query: str) -> List[Tuple[Document, float]]:
         """Search for similar documents."""
-        if not self.index or not self.documents or not self.model: 
-            return []
+        if not self.index or not self.documents: return []
         processed_query = self.text_processor.preprocess_for_embedding(query)
         query_embedding = self.model.encode([processed_query], normalize_embeddings=True)
         scores, indices = self.index.search(query_embedding.astype('float32'), self.config.retrieval_k)
@@ -346,104 +367,57 @@ class FitnessRAG:
             logger.info("No existing knowledge base found. Please build it.")
 
     def _load_generator_model(self):
-        """Loads the causal language model and tokenizer with device-appropriate settings."""
-        logger.info(f"Loading base model: {self.config.generator_model_name}")
+        """Loads the causal language model and tokenizer optimized for CPU."""
+        logger.info(f"Loading base model for CPU: {self.config.generator_model_name}")
 
-        # Check if CUDA is available
-        device_available = torch.cuda.is_available()
+        # Force CPU usage and use float32 for better CPU compatibility
+        device = torch.device("cpu")
         
-        try:
-            if device_available and BITSANDBYTES_AVAILABLE:
-                logger.info("CUDA detected - attempting 4-bit quantization for GPU inference")
-                # Define quantization config for GPU
-                bnb_config = BitsAndBytesConfig(
-                    load_in_4bit=True,
-                    bnb_4bit_use_double_quant=True,
-                    bnb_4bit_quant_type="nf4",
-                    bnb_4bit_compute_dtype=torch.bfloat16,
-                )
-                
-                # Load model with quantization for GPU
-                model = AutoModelForCausalLM.from_pretrained(
-                    self.config.generator_model_name,
-                    quantization_config=bnb_config,
-                    device_map="auto",
-                    trust_remote_code=True,
-                )
-            else:
-                logger.info("No CUDA detected - using CPU inference without quantization")
-                # Load model without quantization for CPU
-                model = AutoModelForCausalLM.from_pretrained(
-                    self.config.generator_model_name,
-                    torch_dtype=torch.float32,  # Use float32 for CPU
-                    device_map="cpu",
-                    trust_remote_code=True,
-                    low_cpu_mem_usage=True,  # Optimize CPU memory usage
-                )
-        except Exception as e:
-            logger.warning(f"Failed to load {self.config.generator_model_name}: {e}")
-            logger.info("Falling back to smaller CPU-friendly model...")
-            
-            # Try Turkish models first, then English models if that fails
-            try:
-                fallback_model = "microsoft/DialoGPT-large"
-                model = AutoModelForCausalLM.from_pretrained(
-                    fallback_model,
-                    torch_dtype=torch.float32,
-                    device_map="cpu",
-                    low_cpu_mem_usage=True,
-                )
-                self.config.generator_model_name = fallback_model
-                self.config.max_context_length = 820  # Adjust for medium model
-                logger.info("Using DialoGPT-medium as fallback")
-            except Exception as e2:
-                logger.warning(f"DialoGPT-medium also failed: {e2}")
-                logger.info("Final fallback to GPT-2...")
-                fallback_model = "gpt2"
-                model = AutoModelForCausalLM.from_pretrained(
-                    fallback_model,
-                    torch_dtype=torch.float32,
-                    device_map="cpu",
-                    low_cpu_mem_usage=True,
-                )
-                self.config.generator_model_name = fallback_model
-                self.config.max_context_length = 600  # Adjust for smaller model
+        # Load the base model with CPU-optimized settings
+        model = AutoModelForCausalLM.from_pretrained(
+            self.config.generator_model_name,
+            torch_dtype=torch.float32,  # Use float32 for CPU
+            device_map="cpu",           # Force CPU usage
+            trust_remote_code=True,
+            low_cpu_mem_usage=True,     # Enable memory optimization for CPU
+        )
 
-        # Load tokenizer
         tokenizer = AutoTokenizer.from_pretrained(self.config.generator_model_name)
         
-        # Handle missing pad token (common issue)
+        # Set padding token if not present
         if tokenizer.pad_token is None:
             tokenizer.pad_token = tokenizer.eos_token
-            logger.info("Set pad_token to eos_token")
 
-        # Load PEFT adapter if available
-        if PEFT_AVAILABLE and self.config.peft_model_path and Path(self.config.peft_model_path).exists():
+        # Check for the PEFT adapter path and load the adapter
+        if self.config.peft_model_path and Path(self.config.peft_model_path).exists():
             logger.info(f"Loading PEFT adapter from: {self.config.peft_model_path}")
-            
             try:
-                # Load the LoRA adapter
+                # Load the LoRA adapter onto the base model
                 model = PeftModel.from_pretrained(
                     model,
                     self.config.peft_model_path,
-                    is_trainable=False
+                    is_trainable=False  # Important for inference
                 )
-                
-                # Merge adapter for CPU inference (more memory but faster)
-                if not device_available:
-                    logger.info("Merging adapter weights for CPU inference...")
-                    model = model.merge_and_unload()
-                
-                logger.info("PEFT adapter loaded successfully")
-            except Exception as e:
-                logger.error(f"Failed to load PEFT adapter: {e}")
-                logger.warning("Continuing with base model only")
-        elif not PEFT_AVAILABLE:
-            logger.warning("PEFT library not available. Using base model only.")
-        else:
-            logger.warning("PEFT adapter path not found or doesn't exist. Using base model only.")
 
+                # Merge adapter for faster inference on CPU
+                logger.info("Merging adapter weights into the base model for CPU optimization...")
+                model = model.merge_and_unload()
+            except Exception as e:
+                logger.warning(f"Failed to load PEFT adapter: {e}. Using base model.")
+        else:
+            logger.warning("PEFT adapter path not found. Using the base model without fine-tuning.")
+
+        # Ensure model is on CPU and in eval mode
+        model = model.to(device)
         model.eval()
+        
+        # Optional: Enable CPU optimizations
+        try:
+            model = torch.jit.script(model)  # JIT compilation for CPU speedup
+            logger.info("Model JIT compiled for CPU optimization.")
+        except Exception as e:
+            logger.info(f"JIT compilation not available or failed: {e}")
+        
         return model, tokenizer
 
     def build_knowledge_base(self, pdf_dir: str = None, json_dir: str = None):
@@ -477,132 +451,38 @@ class FitnessRAG:
         return "\n\n---\n\n".join(context_parts)
 
     def ask(self, user_query: str, system_prompt: str = DEFAULT_SYSTEM_PROMPT) -> str:
-        """Main method to ask a question and get a generated answer with smart token management."""
+        """Main method to ask a question and get a generated answer."""
         start_time = time.time()
         context = self.retrieve_context(user_query)
         retrieval_time = time.time() - start_time
-        context_length = len(context) if context else 0
-        print(f"📚 DEBUG: Retrieved context: {context_length} characters")
         logger.info(f"Context retrieval took {retrieval_time:.2f}s.")
 
-        # Build prompt - Turkish conversation style
         if context:
-            prompt = f"<|system|>{system_prompt}\n\n<|context|>{context}\n\n<|user|>{user_query}\n<|assistant|>"
+            prompt = f"{system_prompt}\n\n### BAĞLAMSAL BİLGİ KAYNAKLARI\n{context}\n\n### KULLANICI SORUSU\n\"{user_query}\"\n\n### CEVAP"
         else:
-            prompt = f"<|system|>{system_prompt}\n\n<|user|>{user_query}\n<|assistant|>"
+            prompt = f"{system_prompt}\n\n### KULLANICI SORUSU\n\"{user_query}\"\n\n### CEVAP"
 
-        # Smart token management - ensure we don't exceed model limits
-        if "8b" in self.config.generator_model_name.lower() or "llama" in self.config.generator_model_name.lower():
-            max_input_tokens = 3000  # Large Turkish models: 4096 - 1096 = 3000
-        elif "large" in self.config.generator_model_name:
-            max_input_tokens = 1400  # DialoGPT-large: 2048 - 648 = 1400
-        elif "medium" in self.config.generator_model_name:
-            max_input_tokens = 700   # DialoGPT-medium: 1024 - 324 = 700  
-        else:
-            max_input_tokens = 500   # GPT-2/smaller: 1024 - 524 = 500
-        
-        # Tokenize and check length
-        temp_tokens = self.tokenizer.encode(prompt)
-        prompt_length = len(temp_tokens)
-        print(f"🔍 DEBUG: Initial prompt length: {prompt_length} tokens")
-        logger.info(f"Initial prompt length: {prompt_length} tokens")
-        
-        # If too long, intelligently truncate
-        if prompt_length > max_input_tokens:
-            print(f"⚠️  DEBUG: Prompt too long ({prompt_length} tokens), truncating context...")
-            logger.warning(f"Prompt too long ({prompt_length} tokens), truncating context...")
-            
-            # Truncate context first, keep system prompt and user query
-            base_prompt = f"<|system|>{system_prompt}\n\n<|user|>{user_query}\n<|assistant|>"
-            base_tokens = len(self.tokenizer.encode(base_prompt))
-            
-            if base_tokens >= max_input_tokens:
-                # Even base prompt is too long, use minimal version
-                minimal_prompt = f"<|user|>{user_query}\n<|assistant|>"
-                prompt = minimal_prompt
-                logger.warning("Using minimal prompt due to length constraints")
-            else:
-                # Gradually reduce context
-                available_for_context = max_input_tokens - base_tokens - 50  # Safety margin
-                if context and available_for_context > 100:
-                    # Truncate context to fit
-                    context_words = context.split()
-                    while True:
-                        test_context = " ".join(context_words)
-                        test_prompt = f"<|system|>{system_prompt}\n\n<|context|>{test_context}\n\n<|user|>{user_query}\n<|assistant|>"
-                        if len(self.tokenizer.encode(test_prompt)) <= max_input_tokens:
-                            prompt = test_prompt
-                            break
-                        context_words = context_words[:-10]  # Remove 10 words at a time
-                        if len(context_words) < 20:  # Minimum context
-                            prompt = base_prompt
-                            break
-                    logger.info(f"Context truncated to {len(context_words)} words")
-                else:
-                    prompt = base_prompt
-                    logger.warning("No context used due to length constraints")
+        inputs = self.tokenizer(prompt, return_tensors="pt", padding=True, truncation=True, max_length=2048)
 
-        # Final tokenization
-        inputs = self.tokenizer(prompt, return_tensors="pt", truncation=True, max_length=max_input_tokens)
-        final_length = inputs['input_ids'].shape[1]
-        print(f"✅ DEBUG: Final prompt length: {final_length} tokens (max: {max_input_tokens})")
-        print(f"🎯 DEBUG: Model: {self.config.generator_model_name}")
-        logger.info(f"Final prompt length: {final_length} tokens for {self.config.generator_model_name}")
-        
-        inputs = inputs.to(self.model.device)
+        with torch.no_grad():
+            outputs = self.model.generate(
+                **inputs,
+                max_new_tokens=512,
+                do_sample=True,
+                temperature=0.7,
+                top_k=50,
+                top_p=0.95,
+                pad_token_id=self.tokenizer.eos_token_id,
+                num_return_sequences=1,
+            )
 
-        print(f"🚀 DEBUG: Starting generation with {final_length} tokens input...")
-        try:
-            with torch.no_grad():
-                # Adjust generation parameters based on model
-                max_tokens = 300 if "large" in self.config.generator_model_name else 200
-                
-                outputs = self.model.generate(
-                    **inputs,
-                    max_new_tokens=max_tokens,   # More tokens for larger models
-                    min_new_tokens=15,           # Ensure meaningful output
-                    do_sample=True,
-                    temperature=0.75,            # Balanced creativity
-                    top_k=50,                    # Good diversity
-                    top_p=0.9,                   # Allow some creativity
-                    pad_token_id=self.tokenizer.eos_token_id,
-                    eos_token_id=self.tokenizer.eos_token_id,
-                    num_beams=1,                 # No beam search for speed
-                    use_cache=True,
-                    repetition_penalty=1.1,      # Prevent repetition
-                    length_penalty=1.0,          # Neutral length bias
-                    no_repeat_ngram_size=2,      # Prevent 2-gram repetition
-                )
-
-            response = self.tokenizer.decode(outputs[0][inputs['input_ids'].shape[1]:], skip_special_tokens=True)
-            response = response.strip()
-            
-            # Debug: Check if response is meaningful
-            if len(response) < 10:
-                print(f"⚠️  DEBUG: Short response ({len(response)} chars): '{response}'")
-                logger.warning(f"Generated response is very short: '{response}'")
-            
-            print(f"✅ DEBUG: Generated response: {len(response)} characters")
-            return response
-            
-        except Exception as e:
-            print(f"❌ DEBUG: Generation failed: {e}")
-            logger.error(f"Generation failed: {e}")
-            print(f"💡 DEBUG: Using intelligent fallback for query: '{user_query}'")
-            # Provide intelligent fallback based on query
-            if "kilo" in user_query.lower():
-                return "Merhaba! Kilo verme konusunda size yardımcı olmaya hazırım. Dengeli beslenme, düzenli hareket ve yeterli uyku en önemli faktörlerdir. Hangi konuda detaylı bilgi istersiniz?"
-            elif "beslenme" in user_query.lower():
-                return "Sağlıklı beslenme konusunda rehberlik edebilirim. Günlük öğünlerinizi düzenlemek ve dengeli beslenme alışkanlıkları kazanmak için size özel öneriler verebilirim."
-            elif "egzersiz" in user_query.lower() or "spor" in user_query.lower():
-                return "Egzersiz programları konusunda size yardımcı olabilirim. Seviyenize uygun, güvenli ve etkili hareketler önerebilirim. Hangi tür aktivitelerle başlamak istersiniz?"
-            else:
-                return "Merhaba! Ben FitTürkAI. Sağlıklı yaşam, beslenme, egzersiz ve uyku konularında size rehberlik edebilirim. Size nasıl yardımcı olabilirim?"
+        response = self.tokenizer.decode(outputs[0][inputs['input_ids'].shape[1]:], skip_special_tokens=True)
+        return response.strip()
 
     def interactive_chat(self):
         """Starts an interactive chat session."""
         print("\n" + "="*60)
-        print("🏋️  FitTürkAI RAG Sistemi - İnteraktif Sohbet Modu")
+        print("🏋️  FitTürkAI RAG Sistemi - İnteraktif Sohbet Modu (CPU)")
         print("="*60)
         if not self.vector_store.documents:
             print("❌ Bilgi tabanı boş. Lütfen önce `build_knowledge_base` çalıştırın.")
@@ -635,79 +515,23 @@ class FitnessRAG:
                 break
             except Exception as e:
                 print(f"❌ Bir hata oluştu: {e}")
+                logger.error(f"Error in interactive chat: {e}", exc_info=True)
 
 # --- Main Execution ---
 def main():
     """Main function to run the RAG system."""
-    import os
-    import sys
-    import subprocess
-    
-    # Get the current script directory (GitHub repo root)
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    
-    # ---! UPDATED PATHS FOR GITHUB DEPLOYMENT !---
-    # Paths relative to the GitHub repo root
-    PDF_DATA_DIRECTORY = os.path.join(current_dir, "indirilen_pdfler")  # If you have PDFs
-    JSON_DATA_DIRECTORY = os.path.join(current_dir, "DATA")           # If you have JSON files
-    
-    # Use the uploaded fine-tuned model from GitHub
-    PEFT_ADAPTER_PATH = os.path.join(current_dir, "fine_tuned_FitTurkAI_QLoRA")
-    VECTOR_STORE_PATH = os.path.join(current_dir, "fitness_rag_store_merged")
-    
-    # Check if the uploaded model exists, if not try to download
-    if not os.path.exists(PEFT_ADAPTER_PATH):
-        print(f"⚠️  Fine-tuned model not found at: {PEFT_ADAPTER_PATH}")
-        print("🔄 Attempting to download model files...")
-        
-        try:
-            download_script = os.path.join(current_dir, "download_models_gdown.py")
-            if os.path.exists(download_script):
-                subprocess.run([sys.executable, download_script], check=True)
-            else:
-                print("❌ Download script not found. Please download model files manually.")
-                print("💡 You can run: python download_models_gdown.py")
-        except subprocess.CalledProcessError:
-            print("❌ Download failed. Using base model without fine-tuning.")
-            PEFT_ADAPTER_PATH = None
-        except Exception as e:
-            print(f"❌ Download error: {e}")
-            PEFT_ADAPTER_PATH = None
-    
-    # Final check for model existence
-    if PEFT_ADAPTER_PATH and os.path.exists(PEFT_ADAPTER_PATH):
-        print(f"✅ Fine-tuned model found at: {PEFT_ADAPTER_PATH}")
-    else:
-        print("⚠️  Will use base model without fine-tuning.")
-        PEFT_ADAPTER_PATH = None
-    
-    # Check if vector store exists
-    if os.path.exists(VECTOR_STORE_PATH):
-        print(f"✅ Vector store found at: {VECTOR_STORE_PATH}")
-    else:
-        print(f"⚠️  Vector store not found at: {VECTOR_STORE_PATH}")
-        VECTOR_STORE_PATH = "./fitness_rag_store_merged"  # Will create new one
-    
-    # Update config with GitHub paths (temporarily disable PEFT for testing)
-    config = RAGConfig(
-        peft_model_path=None,  # Temporarily disabled for testing
-        vector_store_path=VECTOR_STORE_PATH
-    )
-    
-    # Debug: Print the actual paths being used
-    print(f"🔧 DEBUG: Working directory: {current_dir}")
-    print(f"🔧 DEBUG: PEFT path would be: {PEFT_ADAPTER_PATH}")
-    print(f"🔧 DEBUG: Vector store path: {VECTOR_STORE_PATH}")
-    print(f"🔧 DEBUG: PEFT adapter temporarily disabled for testing")
+    # ---! IMPORTANT !---
+    # Set the correct paths for your data and models here.
+    PDF_DATA_DIRECTORY = "./indirilen_pdfler"  # Folder with your PDF files
+    JSON_DATA_DIRECTORY = "./DATA"           # Folder with your JSON/JSONL files
+    # Set this to the path of your fine-tuned LoRA if you have one.
+    # Otherwise, set it to None to use the base model.
+    PEFT_ADAPTER_PATH = "./fine_tuned_FitTurkAI_QLoRA"
+
+    config = RAGConfig(peft_model_path=PEFT_ADAPTER_PATH)
 
     # Initialize the entire system (including loading the LLM)
-    print("🚀 FitTürkAI RAG Sistemi Başlatılıyor...")
-    print("💻 CPU modunda çalışıyor - GPU optimizasyonları devre dışı")
-    
-    # Memory usage tip for CPU
-    if not torch.cuda.is_available():
-        print("💡 CPU için optimize edildi: daha küçük modeller ve parametreler kullanılıyor")
-    
+    print("🚀 FitTürkAI RAG Sistemi Başlatılıyor... (CPU Mode)")
     rag_system = FitnessRAG(config)
 
     # Check if the knowledge base needs to be built

@@ -1,4 +1,4 @@
-# CPU-optimized dependencies for FitTürkAI RAG system
+# CPU-optimized dependencies for FitTürkAI RAG system (Linux Compatible)
 # Core ML libraries - CPU versions with compatible versions
 torch>=2.0.0,<2.2.0  # Stable version for CPU
 transformers>=4.36.0,<4.40.0  # Compatible with PEFT 0.7.x
@@ -17,16 +17,29 @@ faiss-cpu>=1.7.4  # CPU-only FAISS
 numpy>=1.24.0,<2.0.0
 scipy>=1.9.0
 
-# PDF processing (if needed)
+# PDF processing
 PyPDF2>=3.0.0
-pypdf>=3.0.0
+PyMuPDF>=1.23.0  # fitz library for robust PDF text extraction
+pymupdf>=1.23.0  # Alternative name for PyMuPDF
 
 # Essential utilities
 tqdm>=4.64.0
 requests>=2.28.0
 gdown>=4.7.0  # For Google Drive downloads
+pathlib2>=2.3.0  # Enhanced pathlib for better compatibility
+pickle5>=0.0.11  # Better pickle support
 
-# Optional: Additional utilities (uncomment if needed)
-# datasets>=2.14.0  # For dataset handling
-# tokenizers>=0.15.0  # Fast tokenization
-# safetensors>=0.3.0  # For safer model loading
+# Data handling
+pandas>=1.5.0  # For data manipulation if needed
+datasets>=2.14.0  # For dataset handling
+
+# Optional but recommended for better performance
+tokenizers>=0.15.0  # Fast tokenization
+safetensors>=0.3.0  # For safer model loading
+
+# Google Colab specific utilities (uncomment if running on Colab)
+# google-colab
+# ipywidgets
+
+# System utilities for Linux
+psutil>=5.9.0  # System monitoring
