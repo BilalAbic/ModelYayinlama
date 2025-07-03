@@ -60,75 +60,25 @@ class RAGConfig:
     chunk_overlap_sentences: int = 1  # Less overlap to save memory
     retrieval_k: int = 3  # Fewer documents to process
     retrieval_score_threshold: float = 0.3  # Higher threshold for quality
-    max_context_length: int = 1500  # Shorter context for CPU
+    max_context_length: int =820  # Conservative context for CPU (DialoGPT-medium)
 
     # Model parameters - CPU optimized
     embedding_model_name: str = "sentence-transformers/all-MiniLM-L6-v2"  # Lightweight
     generator_model_name: str = "microsoft/DialoGPT-medium"  # CPU-friendly fallback
     peft_model_path: Optional[str] = None # Path to LoRA adapter
 
-DEFAULT_SYSTEM_PROMPT = SISTEM_TALIMATI = """
-[ROL]
-Sen "FitTürkAI" adında, bütünsel yaklaşıma sahip, empatik ve proaktif bir kişisel sağlıklı yaşam koçusun. Görevin yalnızca beslenme önerileri vermek değil, aynı zamanda kullanıcının fiziksel, zihinsel ve yaşam tarzına dair tüm faktörleri dikkate alarak uyarlanabilir rehberler sunmaktır. Sağlık profesyoneli değilsin, tıbbi teşhis veya tedavi öneremezsin. Amacın kullanıcıya yol arkadaşlığı yapmak, rehberlik sağlamak ve davranış değişikliğini sürdürülebilir kılmaktır.
+DEFAULT_SYSTEM_PROMPT = """Sen "FitTürkAI" adında empatik ve profesyonel bir sağlıklı yaşam koçusun. 
 
-[GÖREV TANIMI]
-Kullanıcının profil verilerini analiz ederek ona özel, bütünsel ve sürdürülebilir bir "Sağlıklı Yaşam Rehberi" oluştur. Bu rehber:
-- Beslenme planı
-- Egzersiz planı
-- Uyku düzeni
-- Stres yönetimi stratejileri
-- Su tüketim hedefleri
-bileşenlerini içermelidir. Rehberin sonunda kullanıcıyı küçük bir mikro hedef belirlemeye teşvik et.
+Görevin: Kullanıcılara beslenme, egzersiz, uyku ve stres yönetimi konularında kişiselleştirilmiş rehberlik yapmak.
 
-[İLETİŞİM ADIMLARI – ZORUNLU AKIŞ]
-1. *Tanıtım ve Uyarı:* Kendini "FitTürkAI" olarak tanıt, sağlık uzmanı olmadığını ve verdiğin bilgilerin sadece rehberlik amacı taşıdığını vurgula. Devam izni al.
-2. *Profil Toplama:* Kullanıcıdan şu verileri iste:
-   - Yaş, Cinsiyet, Kilo, Boy
-   - Sağlık durumu (diyabet, obezite, hipertansiyon, vb.)
-   - Beslenme tercihi/alergi (vejetaryen, glutensiz, vb.)
-   - Hedef (kilo vermek, enerji kazanmak, vb.)
-   - Fiziksel aktivite düzeyi
-   - Uyku süresi, stres düzeyi
-3. *Prensip Tanıtımı:* Kullanıcının durumuna özel 3–4 temel prensibi (örneğin: dengeli tabak, kan şekeri dengesi, stres ve uykunun etkisi) açıklayarak rehbere zemin hazırla.
-4. *Kişiselleştirilmiş Sağlıklı Yaşam Rehberi Sun:*
-   - *Beslenme*: Haftalık tablo veya örnek öğünler (tahmini kalori ve porsiyon bilgisiyle)
-   - *Egzersiz*: Haftalık FITT prensibine dayalı plan
-   - *Uyku & Stres*: Pratik iyileştirme önerileri
-   - *Su*: Hedef ve içme taktikleri
-5. *Mikro Hedef Belirleme:* Kullanıcıya küçük, uygulanabilir bir hedef seçtir (“Bu hafta neye odaklanalım?”).
-6. *Kapanış:* Rehberin sonunda doktor desteğinin önemini tekrar vurgula. Net ve cesaret verici bir mesajla bitir.
+Kuralların:
+- Sağlık uzmanı değilsin, sadece genel rehberlik yaparsın
+- "Tedavi", "reçete", "garanti" kelimelerini kullanma
+- "Öneri", "rehber", "yaklaşık" kelimelerini kullan
+- Nazik, motive edici ve destekleyici ol
+- Kısa, net ve uygulanabilir öneriler ver
 
-[KURALLAR VE KISITLAR]
-- ❌ *Yasaklı Terimler:* "Tedavi", "reçete", "kesin sonuç", "garanti", "zayıflama diyeti"
-- ✅ *İzinli Terimler:* "Öneri", "yaklaşık plan", "rehber", "eğitim amaçlı"
-- 🔎 *Kalori ve Porsiyonlar:* Daima “tahmini” ya da “yaklaşık” gibi ifadelerle sun. Öğünler sade, dengeli ve kültürel olarak uygun olmalı.
-- 🚫 *Teşhis/Tedavi:* Teşhis koyamazsın, ilaç öneremezsin.
-- ✅ *Üslup:* Nazik, empatik, motive edici. Net ve profesyonel. Markdown ile netlik sağla (*kalın, *italik, tablolar).
-
-[DİNAMİK ADAPTASYON VE PROAKTİFLİK]
-- Alerji/tercih bildirildiğinde otomatik alternatif öner.
-- Plandan sapıldığında kullanıcıyı motive et, çözüme odaklan, ardından planı revize et (örneğin: “gofret yedim” diyorsa → daha hafif akşam öner).
-- Her zaman kriz anlarını büyütmeden yönet.
-
-[EGZERSİZ PLANI – KURALLAR]
-1. *Uyarı:* Egzersiz önerilerinin öncesinde doktor onayı gerektiğini açıkla.
-2. *FITT Analizi:* Egzersizleri profile göre planla (Sıklık, Yoğunluk, Süre, Tür).
-3. *Plan Formatı:* Haftalık tablo, güvenli hareketler, tekrar sayısı (örneğin: “formun bozulana kadar”, ağırlıksız öneri).
-4. *Gelişim Prensibi:* Kolaylaştıkça artırılabilecek yollar sun.
-
-[EK YETENEKLER]
-- Haftalık değerlendirme (“Geçen hafta nasıldı?”)
-- Tarif oluşturma
-- Alışveriş listesi çıkarma
-- “Neden bu yemek?” sorularını bilimsel ama sade cevaplama
-
-[FEW-SHOT PROMPT – ÖRNEK]
-*Kullanıcı:* Merhaba, kilo vermek istiyorum.
-*FitTürkAI:* Merhaba! Ben FitTürkAI, yol arkadaşınız... [güvenlik uyarısı + devam onayı]
-*Kullanıcı:* 35 yaş, erkek, obezite + hipertansiyon, memur, stresli, 5 saat uyuyor.
-*FitTürkAI:* (Teşekkür + prensipler + beslenme tablosu + egzersiz planı + su + uyku + stres + mikro hedef + kapanış)
-
-"""
+Yaklaşımın: Kullanıcının profilini öğren, basit hedefler belirle, teşvik et."""
 
 # --- Data Structures ---
 @dataclass
@@ -535,34 +485,95 @@ class FitnessRAG:
         return "\n\n---\n\n".join(context_parts)
 
     def ask(self, user_query: str, system_prompt: str = DEFAULT_SYSTEM_PROMPT) -> str:
-        """Main method to ask a question and get a generated answer."""
+        """Main method to ask a question and get a generated answer with smart token management."""
         start_time = time.time()
         context = self.retrieve_context(user_query)
         retrieval_time = time.time() - start_time
         logger.info(f"Context retrieval took {retrieval_time:.2f}s.")
 
+        # Build prompt
         if context:
             prompt = f"{system_prompt}\n\n### BAĞLAMSAL BİLGİ KAYNAKLARI\n{context}\n\n### KULLANICI SORUSU\n\"{user_query}\"\n\n### CEVAP"
         else:
             prompt = f"{system_prompt}\n\n### KULLANICI SORUSU\n\"{user_query}\"\n\n### CEVAP"
 
-        inputs = self.tokenizer(prompt, return_tensors="pt").to(self.model.device)
+        # Smart token management - ensure we don't exceed model limits
+        max_input_tokens = 700  # Leave room for generation (1024 - 324 = 700)
+        
+        # Tokenize and check length
+        temp_tokens = self.tokenizer.encode(prompt)
+        logger.info(f"Initial prompt length: {len(temp_tokens)} tokens")
+        
+        # If too long, intelligently truncate
+        if len(temp_tokens) > max_input_tokens:
+            logger.warning(f"Prompt too long ({len(temp_tokens)} tokens), truncating context...")
+            
+            # Truncate context first, keep system prompt and user query
+            base_prompt = f"{system_prompt}\n\n### KULLANICI SORUSU\n\"{user_query}\"\n\n### CEVAP"
+            base_tokens = len(self.tokenizer.encode(base_prompt))
+            
+            if base_tokens >= max_input_tokens:
+                # Even base prompt is too long, use minimal version
+                minimal_prompt = f"Sen FitTürkAI'sın. Soru: {user_query}\nCevap:"
+                prompt = minimal_prompt
+                logger.warning("Using minimal prompt due to length constraints")
+            else:
+                # Gradually reduce context
+                available_for_context = max_input_tokens - base_tokens - 50  # Safety margin
+                if context and available_for_context > 100:
+                    # Truncate context to fit
+                    context_words = context.split()
+                    while True:
+                        test_context = " ".join(context_words)
+                        test_prompt = f"{system_prompt}\n\n### BAĞLAMSAL BİLGİ KAYNAKLARI\n{test_context}\n\n### KULLANICI SORUSU\n\"{user_query}\"\n\n### CEVAP"
+                        if len(self.tokenizer.encode(test_prompt)) <= max_input_tokens:
+                            prompt = test_prompt
+                            break
+                        context_words = context_words[:-10]  # Remove 10 words at a time
+                        if len(context_words) < 20:  # Minimum context
+                            prompt = base_prompt
+                            break
+                    logger.info(f"Context truncated to {len(context_words)} words")
+                else:
+                    prompt = base_prompt
+                    logger.warning("No context used due to length constraints")
 
-        with torch.no_grad():
-            outputs = self.model.generate(
-                **inputs,
-                max_new_tokens=512,  # Shorter for CPU
-                do_sample=True,
-                temperature=0.8,  # Slightly higher for variety
-                top_k=50,  # Reduce for CPU
-                top_p=0.95,  # Reduce for CPU  
-                pad_token_id=self.tokenizer.eos_token_id,
-                num_beams=1,  # Disable beam search for CPU
-                use_cache=True,  # Use caching for speed
-            )
+        # Final tokenization
+        inputs = self.tokenizer(prompt, return_tensors="pt", truncation=True, max_length=max_input_tokens)
+        final_length = inputs['input_ids'].shape[1]
+        logger.info(f"Final prompt length: {final_length} tokens")
+        
+        inputs = inputs.to(self.model.device)
 
-        response = self.tokenizer.decode(outputs[0][inputs['input_ids'].shape[1]:], skip_special_tokens=True)
-        return response.strip()
+        try:
+            with torch.no_grad():
+                outputs = self.model.generate(
+                    **inputs,
+                    max_new_tokens=256,  # Conservative for CPU
+                    do_sample=True,
+                    temperature=0.8,
+                    top_k=30,  # Reduced for CPU
+                    top_p=0.9,  # Reduced for CPU  
+                    pad_token_id=self.tokenizer.eos_token_id,
+                    num_beams=1,  # No beam search for CPU
+                    use_cache=True,
+                    early_stopping=True,
+                )
+
+            response = self.tokenizer.decode(outputs[0][inputs['input_ids'].shape[1]:], skip_special_tokens=True)
+            return response.strip()
+            
+        except Exception as e:
+            logger.error(f"Generation failed: {e}")
+            # Provide intelligent fallback based on query
+            if "kilo" in user_query.lower():
+                return "Merhaba! Kilo verme konusunda size yardımcı olmaya hazırım. Dengeli beslenme, düzenli hareket ve yeterli uyku en önemli faktörlerdir. Hangi konuda detaylı bilgi istersiniz?"
+            elif "beslenme" in user_query.lower():
+                return "Sağlıklı beslenme konusunda rehberlik edebilirim. Günlük öğünlerinizi düzenlemek ve dengeli beslenme alışkanlıkları kazanmak için size özel öneriler verebilirim."
+            elif "egzersiz" in user_query.lower() or "spor" in user_query.lower():
+                return "Egzersiz programları konusunda size yardımcı olabilirim. Seviyenize uygun, güvenli ve etkili hareketler önerebilirim. Hangi tür aktivitelerle başlamak istersiniz?"
+            else:
+                return "Merhaba! Ben FitTürkAI. Sağlıklı yaşam, beslenme, egzersiz ve uyku konularında size rehberlik edebilirim. Size nasıl yardımcı olabilirim?"
 
     def interactive_chat(self):
         """Starts an interactive chat session."""
