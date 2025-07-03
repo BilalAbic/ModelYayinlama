@@ -60,11 +60,11 @@ class RAGConfig:
     chunk_overlap_sentences: int = 1  # Less overlap to save memory
     retrieval_k: int = 3  # Fewer documents to process
     retrieval_score_threshold: float = 0.3  # Higher threshold for quality
-    max_context_length: int = 820  # Conservative context for CPU (DialoGPT-medium)
+    max_context_length: int = 1200  # More context for DialoGPT-large (2048 tokens)
 
     # Model parameters - CPU optimized
     embedding_model_name: str = "sentence-transformers/all-MiniLM-L6-v2"  # Lightweight
-    generator_model_name: str = "microsoft/DialoGPT-medium"  # CPU-friendly fallback
+    generator_model_name: str = "microsoft/DialoGPT-large"  # Larger model for better responses
     peft_model_path: Optional[str] = None # Path to LoRA adapter
 
 DEFAULT_SYSTEM_PROMPT = """Sen FitTürkAI, empatik ve profesyonel bir sağlık koçusun. Beslenme, egzersiz, uyku ve stres yönetimi konularında rehberlik yaparsın. Sağlık uzmanı değilsin, genel öneriler verirsin. Nazik, motive edici ve destekleyici yaklaşım sergilersin."""
@@ -384,7 +384,7 @@ class FitnessRAG:
             logger.warning(f"Failed to load {self.config.generator_model_name}: {e}")
             logger.info("Falling back to smaller CPU-friendly model...")
             
-            # Try DialoGPT-medium first, then DistilGPT-2 if that fails
+            # Try DialoGPT-medium first, then smaller models if that fails
             try:
                 fallback_model = "microsoft/DialoGPT-medium"
                 model = AutoModelForCausalLM.from_pretrained(
@@ -394,10 +394,12 @@ class FitnessRAG:
                     low_cpu_mem_usage=True,
                 )
                 self.config.generator_model_name = fallback_model
+                self.config.max_context_length = 820  # Adjust for medium model
+                logger.info("Using DialoGPT-medium as fallback")
             except Exception as e2:
                 logger.warning(f"DialoGPT-medium also failed: {e2}")
-                logger.info("Final fallback to DistilGPT-2...")
-                fallback_model = "distilgpt2"
+                logger.info("Final fallback to GPT-2...")
+                fallback_model = "gpt2"
                 model = AutoModelForCausalLM.from_pretrained(
                     fallback_model,
                     torch_dtype=torch.float32,
@@ -405,6 +407,7 @@ class FitnessRAG:
                     low_cpu_mem_usage=True,
                 )
                 self.config.generator_model_name = fallback_model
+                self.config.max_context_length = 600  # Adjust for smaller model
 
         # Load tokenizer
         tokenizer = AutoTokenizer.from_pretrained(self.config.generator_model_name)
@@ -489,7 +492,12 @@ class FitnessRAG:
             prompt = f"Sistem: {system_prompt}\n\nKullanıcı: {user_query}\nAsistan:"
 
         # Smart token management - ensure we don't exceed model limits
-        max_input_tokens = 700  # Leave room for generation (1024 - 324 = 700)
+        if "large" in self.config.generator_model_name:
+            max_input_tokens = 1400  # DialoGPT-large: 2048 - 648 = 1400
+        elif "medium" in self.config.generator_model_name:
+            max_input_tokens = 700   # DialoGPT-medium: 1024 - 324 = 700  
+        else:
+            max_input_tokens = 500   # GPT-2/smaller: 1024 - 524 = 500
         
         # Tokenize and check length
         temp_tokens = self.tokenizer.encode(prompt)
@@ -536,28 +544,32 @@ class FitnessRAG:
         inputs = self.tokenizer(prompt, return_tensors="pt", truncation=True, max_length=max_input_tokens)
         final_length = inputs['input_ids'].shape[1]
         print(f"✅ DEBUG: Final prompt length: {final_length} tokens (max: {max_input_tokens})")
-        logger.info(f"Final prompt length: {final_length} tokens")
+        print(f"🎯 DEBUG: Model: {self.config.generator_model_name}")
+        logger.info(f"Final prompt length: {final_length} tokens for {self.config.generator_model_name}")
         
         inputs = inputs.to(self.model.device)
 
         print(f"🚀 DEBUG: Starting generation with {final_length} tokens input...")
         try:
             with torch.no_grad():
+                # Adjust generation parameters based on model
+                max_tokens = 300 if "large" in self.config.generator_model_name else 200
+                
                 outputs = self.model.generate(
                     **inputs,
-                    max_new_tokens=200,  # Conservative for CPU
-                    min_new_tokens=10,   # Ensure some output
+                    max_new_tokens=max_tokens,   # More tokens for larger models
+                    min_new_tokens=15,           # Ensure meaningful output
                     do_sample=True,
-                    temperature=0.7,     # Lower for more focused responses
-                    top_k=40,            # Slightly higher for diversity
-                    top_p=0.85,          # Reduced for CPU  
+                    temperature=0.75,            # Balanced creativity
+                    top_k=50,                    # Good diversity
+                    top_p=0.9,                   # Allow some creativity
                     pad_token_id=self.tokenizer.eos_token_id,
                     eos_token_id=self.tokenizer.eos_token_id,
-                    num_beams=1,         # No beam search for CPU
+                    num_beams=1,                 # No beam search for speed
                     use_cache=True,
-                    repetition_penalty=1.15,  # Stronger prevention of repetition
-                    length_penalty=1.1,       # Encourage longer responses
-                    no_repeat_ngram_size=3,   # Prevent 3-gram repetition
+                    repetition_penalty=1.1,      # Prevent repetition
+                    length_penalty=1.0,          # Neutral length bias
+                    no_repeat_ngram_size=2,      # Prevent 2-gram repetition
                 )
 
             response = self.tokenizer.decode(outputs[0][inputs['input_ids'].shape[1]:], skip_special_tokens=True)
