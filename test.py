@@ -674,11 +674,17 @@ def main():
         print(f"⚠️  Vector store not found at: {VECTOR_STORE_PATH}")
         VECTOR_STORE_PATH = "./fitness_rag_store_merged"  # Will create new one
     
-    # Update config with GitHub paths
+    # Update config with GitHub paths (temporarily disable PEFT for testing)
     config = RAGConfig(
-        peft_model_path=PEFT_ADAPTER_PATH,
+        peft_model_path=None,  # Temporarily disabled for testing
         vector_store_path=VECTOR_STORE_PATH
     )
+    
+    # Debug: Print the actual paths being used
+    print(f"🔧 DEBUG: Working directory: {current_dir}")
+    print(f"🔧 DEBUG: PEFT path would be: {PEFT_ADAPTER_PATH}")
+    print(f"🔧 DEBUG: Vector store path: {VECTOR_STORE_PATH}")
+    print(f"🔧 DEBUG: PEFT adapter temporarily disabled for testing")
 
     # Initialize the entire system (including loading the LLM)
     print("🚀 FitTürkAI RAG Sistemi Başlatılıyor...")
